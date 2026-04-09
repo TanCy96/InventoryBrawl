@@ -2,7 +2,7 @@
 
 **Goal:** Define a generic, data-driven Unreal C++ inventory system that supports irregular non-hollow item footprints, rotation, drag/drop movement, discard, and atomic transfer between two inventories.
 
-**Project context:** `GattlingTurret` is currently a small single-module Unreal project with minimal native gameplay code. There is no existing inventory framework, replication layer, or save/load system to integrate with, so the design should favor a clean reusable gameplay core that can be attached to any actor and driven by UMG.
+**Project context:** `InventoryBrawl` is currently a small single-module Unreal project with minimal native gameplay code. There is no existing inventory framework, replication layer, or save/load system to integrate with, so the design should favor a clean reusable gameplay core that can be attached to any actor and driven by UMG.
 
 ## Scope
 
@@ -192,7 +192,7 @@ Manual editor verification should confirm:
 
 ## Unreal integration notes
 
-- Keep the gameplay core in the existing `GattlingTurret` module rather than introducing another module in v1.
+- Keep the gameplay core in the existing `InventoryBrawl` module rather than introducing another module in v1.
 - Prefer smaller focused files because the project is still early and easy to keep organized.
 - Use Unreal-friendly types and reflection only where needed for editor/UI exposure; keep grid math as plain C++ where practical.
 - Let Blueprint/UMG consume delegates and callable methods, but avoid putting authoritative rules in Blueprint.
