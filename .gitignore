@@ -1,0 +1,47 @@
+# Unreal Engine
+Saved/
+Intermediate/
+DerivedDataCache/
+Binaries/
+Build/
+.vscode/
+.vs/
+*.opensdf
+*.sdf
+*.suo
+*.xcodeproj
+*.xcworkspace
+*.DS_Store
+*.log
+
+# User-specific
+*.user
+*.userprefs
+*.sln.ide
+*.sln
+*.suo
+.vscode/
+.vs/
+.vsconfig
+
+# Generated
+*.xcodeproj
+*.xcworkspace
+*.ncb
+*.sdf
+*.suo
+
+# Mac
+.DS_Store
+
+# Windows thumbnail caches
+Thumbs.db
+
+# Rider
+.idea/
+*.sln.iml
+
+# Ignore compiled binaries for the engine itself
+Engine/Binaries/
+Engine/Intermediate/
+.superpowers/
