@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is used as a general Unreal Engine workspace. Follow these rules even if the current project name changes later.
+This repository is used as a general Unreal Engine workspace. Follow these rules even if the current project name changes later. 
 
 ## Scope
 
