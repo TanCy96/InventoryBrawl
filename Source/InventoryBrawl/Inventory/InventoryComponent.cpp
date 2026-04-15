@@ -80,12 +80,34 @@ FInventoryOperationResultData UInventoryComponent::TryAddItem(
 
 FInventoryOperationResultData UInventoryComponent::TryMoveItem(FGuid ItemId, FIntPoint NewAnchor, EInventoryRotation NewRotation)
 {
-	return MakeFailure(EInventoryOperationResult::Unsupported, ItemId, TEXT("Move is not implemented yet."));
+	FInventoryItemRuntimeData* Item = FindItemMutable(ItemId);
+	if (!Item || !Item->Definition)
+	{
+		return MakeFailure(EInventoryOperationResult::ItemNotFound, ItemId, TEXT("Inventory item was not found."));
+	}
+
+	EInventoryOperationResult PlacementResult = EInventoryOperationResult::Unsupported;
+	TArray<FIntPoint> OccupiedCells;
+	if (!FInventoryGridHelper::IsPlacementValid(Item->Definition->OccupiedCells, NewAnchor, NewRotation, GridSize, Items, &ItemId, PlacementResult, OccupiedCells))
+	{
+		return MakeFailure(PlacementResult, ItemId, TEXT("Move target is invalid."));
+	}
+
+	Item->Anchor = NewAnchor;
+	Item->Rotation = NewRotation;
+	OnInventoryChanged.Broadcast();
+	return FInventoryOperationResultData::Make(EInventoryOperationResult::Success, ItemId, FText::GetEmpty());
 }
 
 FInventoryOperationResultData UInventoryComponent::TryRotateItem(FGuid ItemId, EInventoryRotation NewRotation)
 {
-	return MakeFailure(EInventoryOperationResult::Unsupported, ItemId, TEXT("Rotate is not implemented yet."));
+	const FInventoryItemRuntimeData* Item = FindItem(ItemId);
+	if (!Item)
+	{
+		return MakeFailure(EInventoryOperationResult::ItemNotFound, ItemId, TEXT("Inventory item was not found."));
+	}
+
+	return TryMoveItem(ItemId, Item->Anchor, NewRotation);
 }
 
 FInventoryOperationResultData UInventoryComponent::TryTransferItem(
@@ -94,12 +116,60 @@ FInventoryOperationResultData UInventoryComponent::TryTransferItem(
 	FIntPoint TargetAnchor,
 	EInventoryRotation TargetRotation)
 {
-	return MakeFailure(EInventoryOperationResult::Unsupported, ItemId, TEXT("Transfer is not implemented yet."));
+	if (!TargetInventory)
+	{
+		return MakeFailure(EInventoryOperationResult::Unsupported, ItemId, TEXT("Target inventory is required."));
+	}
+
+	FInventoryItemRuntimeData* Item = FindItemMutable(ItemId);
+	if (!Item || !Item->Definition)
+	{
+		return MakeFailure(EInventoryOperationResult::ItemNotFound, ItemId, TEXT("Inventory item was not found."));
+	}
+
+	EInventoryOperationResult PlacementResult = EInventoryOperationResult::Unsupported;
+	TArray<FIntPoint> OccupiedCells;
+	if (!FInventoryGridHelper::IsPlacementValid(
+		Item->Definition->OccupiedCells,
+		TargetAnchor,
+		TargetRotation,
+		TargetInventory->GridSize,
+		TargetInventory->Items,
+		nullptr,
+		PlacementResult,
+		OccupiedCells))
+	{
+		return MakeFailure(PlacementResult, ItemId, TEXT("Transfer target is invalid."));
+	}
+
+	FInventoryItemRuntimeData TransferredItem = *Item;
+	TransferredItem.Anchor = TargetAnchor;
+	TransferredItem.Rotation = TargetRotation;
+
+	Items.RemoveAll([&ItemId](const FInventoryItemRuntimeData& ExistingItem) { return ExistingItem.ItemId == ItemId; });
+	TargetInventory->Items.Add(TransferredItem);
+
+	OnInventoryChanged.Broadcast();
+	TargetInventory->OnInventoryChanged.Broadcast();
+
+	return FInventoryOperationResultData::Make(EInventoryOperationResult::Success, ItemId, FText::GetEmpty());
 }
 
 FInventoryOperationResultData UInventoryComponent::DiscardItem(FGuid ItemId)
 {
-	return MakeFailure(EInventoryOperationResult::Unsupported, ItemId, TEXT("Discard is not implemented yet."));
+	const FInventoryItemRuntimeData* Item = FindItem(ItemId);
+	if (!Item)
+	{
+		return MakeFailure(EInventoryOperationResult::ItemNotFound, ItemId, TEXT("Inventory item was not found."));
+	}
+
+	const FInventoryItemRuntimeData DiscardedCopy = *Item;
+	Items.RemoveAll([&ItemId](const FInventoryItemRuntimeData& ExistingItem) { return ExistingItem.ItemId == ItemId; });
+
+	OnItemDiscarded.Broadcast(DiscardedCopy, GridSize);
+	OnInventoryChanged.Broadcast();
+
+	return FInventoryOperationResultData::Make(EInventoryOperationResult::Success, ItemId, FText::GetEmpty());
 }
 
 const FInventoryItemRuntimeData* UInventoryComponent::FindItem(FGuid ItemId) const

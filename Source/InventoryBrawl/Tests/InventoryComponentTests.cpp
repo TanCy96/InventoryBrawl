@@ -33,3 +33,62 @@ bool FInventoryComponentQueryTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryTransferTest,
+	"InventoryBrawl.Inventory.Transfer",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryTransferTest::RunTest(const FString& Parameters)
+{
+	UInventoryComponent* Source = NewObject<UInventoryComponent>();
+	UInventoryComponent* Target = NewObject<UInventoryComponent>();
+	Source->SetGridSize(FIntPoint(5, 5));
+	Target->SetGridSize(FIntPoint(3, 3));
+
+	UInventoryItemDefinition* Tee = NewObject<UInventoryItemDefinition>();
+	Tee->OccupiedCells = {FIntPoint(0, 0), FIntPoint(1, 0), FIntPoint(2, 0), FIntPoint(1, 1)};
+
+	const FInventoryOperationResultData AddResult = Source->TryAddItem(Tee, FIntPoint(0, 0), EInventoryRotation::Degrees0);
+	TestEqual(TEXT("Seed add should succeed"), AddResult.Result, EInventoryOperationResult::Success);
+
+	const FInventoryOperationResultData TransferResult = Source->TryTransferItem(AddResult.ItemId, Target, FIntPoint(0, 0), EInventoryRotation::Degrees90);
+	TestEqual(TEXT("Transfer should succeed"), TransferResult.Result, EInventoryOperationResult::Success);
+	TestEqual(TEXT("Source should be empty after transfer"), Source->GetItems().Num(), 0);
+	TestEqual(TEXT("Target should contain transferred item"), Target->GetItems().Num(), 1);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryMoveAndDiscardTest,
+	"InventoryBrawl.Inventory.MoveAndDiscard",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryMoveAndDiscardTest::RunTest(const FString& Parameters)
+{
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->SetGridSize(FIntPoint(4, 4));
+
+	UInventoryItemDefinition* Bar = NewObject<UInventoryItemDefinition>();
+	Bar->OccupiedCells = {FIntPoint(0, 0), FIntPoint(1, 0)};
+
+	const FInventoryOperationResultData AddResult = Inventory->TryAddItem(Bar, FIntPoint(0, 0), EInventoryRotation::Degrees0);
+	TestEqual(TEXT("Seed add should succeed"), AddResult.Result, EInventoryOperationResult::Success);
+
+	TestEqual(
+		TEXT("Move should succeed"),
+		Inventory->TryMoveItem(AddResult.ItemId, FIntPoint(1, 1), EInventoryRotation::Degrees0).Result,
+		EInventoryOperationResult::Success);
+	TestEqual(
+		TEXT("Rotate should succeed"),
+		Inventory->TryRotateItem(AddResult.ItemId, EInventoryRotation::Degrees90).Result,
+		EInventoryOperationResult::Success);
+	TestEqual(
+		TEXT("Discard should succeed"),
+		Inventory->DiscardItem(AddResult.ItemId).Result,
+		EInventoryOperationResult::Success);
+	TestEqual(TEXT("Inventory should be empty after discard"), Inventory->GetItems().Num(), 0);
+
+	return true;
+}
