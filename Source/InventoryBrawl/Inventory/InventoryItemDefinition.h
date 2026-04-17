@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/PrimaryDataAsset.h"
+#include "Engine/DataAsset.h"
 #include "Inventory/InventoryTypes.h"
 #include "InventoryItemDefinition.generated.h"
 

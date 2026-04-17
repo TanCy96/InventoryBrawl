@@ -28,11 +28,13 @@ bool FInventoryGridHelper::ValidateShape(const TArray<FIntPoint>& Cells, FText& 
 	TSet<FIntPoint> UniqueCells;
 	for (const FIntPoint& Cell : Cells)
 	{
-		if (!UniqueCells.Add(Cell))
+		if (UniqueCells.Contains(Cell))
 		{
 			OutError = FText::FromString(TEXT("Inventory shape contains duplicate occupied cells."));
 			return false;
 		}
+
+		UniqueCells.Add(Cell);
 	}
 
 	TArray<FIntPoint> OpenSet;
@@ -42,10 +44,12 @@ bool FInventoryGridHelper::ValidateShape(const TArray<FIntPoint>& Cells, FText& 
 	while (!OpenSet.IsEmpty())
 	{
 		const FIntPoint Current = OpenSet.Pop();
-		if (!Visited.Add(Current))
+		if (Visited.Contains(Current))
 		{
 			continue;
 		}
+
+		Visited.Add(Current);
 
 		for (const FIntPoint& Neighbor : CollectNeighbors(Current))
 		{
@@ -85,10 +89,12 @@ bool FInventoryGridHelper::ValidateShape(const TArray<FIntPoint>& Cells, FText& 
 			while (!Flood.IsEmpty())
 			{
 				const FIntPoint Current = Flood.Pop();
-				if (!Seen.Add(Current) || UniqueCells.Contains(Current))
+				if (Seen.Contains(Current) || UniqueCells.Contains(Current))
 				{
 					continue;
 				}
+
+				Seen.Add(Current);
 
 				if (Current.X < MinX || Current.X > MaxX || Current.Y < MinY || Current.Y > MaxY)
 				{

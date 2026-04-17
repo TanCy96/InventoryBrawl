@@ -1,6 +1,7 @@
 #include "Inventory/InventoryItemDefinition.h"
 
 #include "Inventory/InventoryGridHelper.h"
+#include "Misc/DataValidation.h"
 
 bool UInventoryItemDefinition::IsShapeValid(FText& OutError) const
 {
