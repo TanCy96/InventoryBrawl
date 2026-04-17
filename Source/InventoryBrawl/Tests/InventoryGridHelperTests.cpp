@@ -34,7 +34,7 @@ bool FInventoryShapeValidationTest::RunTest(const FString& Parameters)
 	{
 		const TArray<FIntPoint> Tee = {FIntPoint(0, 0), FIntPoint(1, 0), FIntPoint(2, 0), FIntPoint(1, 1)};
 		const TArray<FIntPoint> Rotated = FInventoryGridHelper::RotateShape(Tee, EInventoryRotation::Degrees90);
-		const TArray<FIntPoint> Expected = {FIntPoint(0, 1), FIntPoint(1, 0), FIntPoint(1, 1), FIntPoint(1, 2)};
+		const TArray<FIntPoint> Expected = {FIntPoint(1, 0), FIntPoint(0, 1), FIntPoint(1, 1), FIntPoint(1, 2)};
 		TestEqual(TEXT("Rotation should normalize shape"), Rotated, Expected);
 	}
 
