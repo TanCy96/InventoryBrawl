@@ -1183,45 +1183,210 @@ Expected: the new UMG types compile without introducing gameplay rules into widg
 **Files:**
 - No new C++ files required
 
-- [ ] **Step 1: Create test data assets in the editor**
+- [ ] **Step 1: Create the inventory definition folder**
 
-Create these assets under `Content/Inventory/Definitions/`:
+In the Content Browser:
+
+```text
+Content/Inventory/
+Content/Inventory/Definitions/
+```
+
+Expected:
+- `Definitions` exists and is empty before the new data assets are added.
+
+- [ ] **Step 2: Create the first item definition asset**
+
+In `Content/Inventory/Definitions/`, create a `UInventoryItemDefinition` data asset named:
 
 ```text
 DA_Item_Bar2
+```
+
+Set:
+
+```text
+DisplayName = "Bar 2"
 OccupiedCells = [(0,0), (1,0)]
+```
 
+Expected:
+- Saving the asset produces no validation error.
+
+- [ ] **Step 3: Create the second item definition asset**
+
+Create:
+
+```text
 DA_Item_LShape
-OccupiedCells = [(0,0), (1,0), (0,1)]
+```
 
+Set:
+
+```text
+DisplayName = "L Shape"
+OccupiedCells = [(0,0), (1,0), (0,1)]
+```
+
+Expected:
+- Saving the asset produces no validation error.
+
+- [ ] **Step 4: Create the third item definition asset**
+
+Create:
+
+```text
 DA_Item_TShape
+```
+
+Set:
+
+```text
+DisplayName = "T Shape"
 OccupiedCells = [(0,0), (1,0), (2,0), (1,1)]
 ```
 
-- [ ] **Step 2: Create two Blueprint widgets derived from the C++ base**
+Expected:
+- Saving the asset produces no validation error.
 
-In the editor, create:
+- [ ] **Step 5: Create the player inventory widget Blueprint**
 
-```text
-WBP_PlayerInventoryGrid : UInventoryGridWidget
-WBP_ContainerInventoryGrid : UInventoryGridWidget
-```
-
-Wire them so drag enter/hover calls `PreviewExistingItem`, rotate input updates the pending rotation on `UInventoryDragDropOperation`, and drop commits through `CommitMove` or `CommitTransfer`.
-
-- [ ] **Step 3: Manual verification checklist**
-
-Verify all of the following in PIE:
+Create a Widget Blueprint derived from `UInventoryGridWidget`:
 
 ```text
-1. Drag an item inside one inventory and drop it on a valid location.
-2. Drag the same item to an invalid location and confirm preview/result reports overlap or out-of-bounds.
-3. Rotate the item while dragging and confirm the preview updates to the normalized rotated footprint.
-4. Move an item from the player inventory widget to the container inventory widget and confirm the source inventory loses it only when the target placement is valid.
-5. Discard an item and confirm the runtime record is removed and the discard delegate fires.
+WBP_PlayerInventoryGrid
 ```
 
-- [ ] **Step 4: Final regression build and automated tests**
+Expected:
+- The Blueprint parent class is `UInventoryGridWidget`.
+- The Blueprint compiles without warnings.
+
+- [ ] **Step 6: Create the container inventory widget Blueprint**
+
+Create a Widget Blueprint derived from `UInventoryGridWidget`:
+
+```text
+WBP_ContainerInventoryGrid
+```
+
+Expected:
+- The Blueprint parent class is `UInventoryGridWidget`.
+- The Blueprint compiles without warnings.
+
+- [ ] **Step 7: Add a visible grid presentation to each widget**
+
+In both widget Blueprints, add enough UI to make grid cells and item visuals inspectable during PIE. At minimum:
+- a root panel
+- a visual area representing the inventory grid
+- a way to show item widgets or placeholders over that grid
+
+Expected:
+- Both widgets can be placed in another UI and visibly distinguish player vs container inventory.
+
+- [ ] **Step 8: Bind each widget instance to a real `UInventoryComponent`**
+
+Decide which actor owns the player inventory and which actor owns the container inventory, then assign the `Inventory` property on each widget instance to the corresponding component.
+
+Expected:
+- `WBP_PlayerInventoryGrid.Inventory` points to the player-side component.
+- `WBP_ContainerInventoryGrid.Inventory` points to the container-side component.
+
+- [ ] **Step 9: Seed both inventories with known test data**
+
+Before running interaction tests, ensure you can create runtime items in the two inventory components so the widgets start with visible items. Use at least:
+- one `DA_Item_Bar2`
+- one `DA_Item_LShape`
+- one `DA_Item_TShape`
+
+Expected:
+- At least one item is visible in the player inventory.
+- At least one transfer target area is visible in the container inventory.
+
+- [ ] **Step 10: Wire drag start to create `UInventoryDragDropOperation`**
+
+When the user begins dragging an item widget:
+- create `UInventoryDragDropOperation`
+- set `SourceInventory`
+- set `ItemId`
+- initialize `PendingRotation`
+
+Expected:
+- Dragging an item starts a UMG drag operation carrying the correct runtime item id.
+
+- [ ] **Step 11: Wire hover/drag-over preview**
+
+During drag-over or hover on a grid cell:
+- convert cursor position to target grid coordinates
+- call `PreviewExistingItem(ItemId, Anchor, Rotation)`
+- pass the returned preview into `HandlePreviewUpdated`
+
+Expected:
+- Valid targets and invalid targets can be visually distinguished.
+
+- [ ] **Step 12: Wire rotate input during drag**
+
+While dragging:
+- update `PendingRotation` on the `UInventoryDragDropOperation`
+- use that updated rotation when calling `PreviewExistingItem`
+
+Expected:
+- The preview footprint changes immediately when rotation input is triggered.
+
+- [ ] **Step 13: Wire drop to same-inventory move**
+
+If `SourceInventory` equals the widget's `Inventory`:
+- call `CommitMove(ItemId, Anchor, PendingRotation)`
+
+Expected:
+- Successful drops move the existing runtime item.
+- Invalid drops leave the item in its original location.
+
+- [ ] **Step 14: Wire drop to cross-inventory transfer**
+
+If `SourceInventory` differs from the widget's `Inventory`:
+- call `CommitTransfer(SourceInventory, ItemId, Anchor, PendingRotation)`
+
+Expected:
+- Successful drops remove the item from the source and add it to the target.
+- Invalid drops leave the source inventory unchanged.
+
+- [ ] **Step 15: Wire a discard action**
+
+Provide a temporary discard button, context action, or key path that calls:
+
+```text
+Inventory->DiscardItem(ItemId)
+```
+
+Expected:
+- The item disappears from the source inventory UI.
+- Any debug output or Blueprint listener bound to `OnItemDiscarded` fires once.
+
+- [ ] **Step 16: Run manual verification in PIE and record outcomes**
+
+Use this checklist during one or more PIE runs:
+
+```text
+[ ] Move within one inventory to a valid location succeeds.
+[ ] Move within one inventory to an invalid location is rejected.
+[ ] Overlap preview is visually distinct from valid preview.
+[ ] Out-of-bounds preview is visually distinct from valid preview.
+[ ] Rotating during drag updates the preview footprint.
+[ ] Rotating and dropping into a valid position succeeds.
+[ ] Transfer from player inventory to container succeeds.
+[ ] Transfer to an invalid container position is rejected without item loss.
+[ ] Discard removes the runtime record from the inventory.
+[ ] Discard fires the expected delegate or debug hook once.
+```
+
+Record for each failed check:
+- what you dragged
+- source widget
+- target widget
+- expected result
+- observed result
+
+- [ ] **Step 17: Final regression build and automated tests**
 
 Run:
 
@@ -1230,7 +1395,9 @@ C:\Program Files\Epic Games\UE_5.3\Engine\Build\BatchFiles\Build.bat InventoryBr
 C:\Program Files\Epic Games\UE_5.3\Engine\Binaries\Win64\UnrealEditor-Cmd.exe "E:\Projects\InventoryBrawl\InventoryBrawl.uproject" -ExecCmds="Automation RunTests InventoryBrawl.Inventory; Quit" -unattended -nop4 -nosplash -NullRHI -log
 ```
 
-Expected: build succeeds, automation tests pass, and only manual UMG interaction remains editor-verified.
+Expected:
+- C++ inventory automation tests still pass after the editor wiring work.
+- Manual UMG interaction results from Step 16 are the only remaining source of behavior validation.
 
 ---
 
