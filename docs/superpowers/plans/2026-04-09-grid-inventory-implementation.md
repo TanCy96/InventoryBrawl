@@ -24,6 +24,8 @@
 - `Source/InventoryBrawl/UI/InventoryDragDropOperation.cpp`
 - `Source/InventoryBrawl/UI/InventoryGridWidget.h`
 - `Source/InventoryBrawl/UI/InventoryGridWidget.cpp`
+- `Source/InventoryBrawl/UI/InventoryBrawlHUD.h`
+- `Source/InventoryBrawl/UI/InventoryBrawlHUD.cpp`
 - `Source/InventoryBrawl/Tests/InventoryGridHelperTests.cpp`
 - `Source/InventoryBrawl/Tests/InventoryComponentTests.cpp`
 
@@ -37,6 +39,7 @@
 - `InventoryComponent.*`: authoritative storage and mutation/query APIs, delegates, transfer/discard hooks
 - `InventoryDragDropOperation.*`: UMG drag payload that carries inventory pointer, item id, anchor/rotation preview state
 - `InventoryGridWidget.*`: Blueprintable base widget that exposes preview/query/commit helpers while keeping rules in C++
+- `InventoryBrawlHUD.*`: thin `AHUD` subclass that owns the root HUD widget and adds it to the viewport
 - `InventoryGridHelperTests.cpp`: narrow math validation coverage
 - `InventoryComponentTests.cpp`: component mutation and transaction coverage
 
@@ -1283,86 +1286,230 @@ In both widget Blueprints, add enough UI to make grid cells and item visuals ins
 Expected:
 - Both widgets can be placed in another UI and visibly distinguish player vs container inventory.
 
-- [ ] **Step 8: Bind each widget instance to a real `UInventoryComponent`**
+- [ ] **Step 8: Place both `UInventoryComponent` instances on the player pawn and own the HUD via `AHUD`**
 
-Decide which actor owns the player inventory and which actor owns the container inventory, then assign the `Inventory` property on each widget instance to the corresponding component.
+For the testing scope, both inventory components live on the player pawn. That covers same-pawn cross-inventory transfer without spawning a container actor. A real placeable container actor is captured under "Future Work" at the end of this plan.
+
+The HUD itself is owned by an `AHUD` subclass — not the player controller — so the input layer never owns UI lifecycle.
+
+**Add both components to the player pawn**
+
+- Open `BP_TopDownCharacter` (the Blueprint child of `AInventoryBrawlCharacter`). If it does not exist, right-click the C++ class in the Content Browser and create one.
+- `Add Component → Inventory Component`. Rename to `PlayerInventory`. In the Details panel, set `GridSize` to `(8, 6)`.
+- `Add Component → Inventory Component` again. Rename to `ContainerInventory`. Set `GridSize` to `(4, 4)`.
+
+**Create the parent HUD layout widget**
+
+- Create `WBP_HUD` under `Content/Inventory/` with a `Canvas Panel` root.
+- Drop one `WBP_PlayerInventoryGrid` instance into the canvas. With it selected, tick **Is Variable** in the Details panel and rename the variable to `PlayerGrid`. In the Canvas Panel Slot: anchor preset bottom-left, **Alignment** `(0.0, 1.0)`, **Position** `(20, -20)`, **Size To Content** ✅.
+- Drop one `WBP_ContainerInventoryGrid` instance into the canvas. Tick **Is Variable**; rename to `ContainerGrid`. Canvas Panel Slot: anchor preset top-right, **Alignment** `(1.0, 0.0)`, **Position** `(-20, 20)`, **Size To Content** ✅.
+- In `WBP_HUD`'s graph, override `Event Construct`:
+  - `Get Player Pawn (0)`.
+  - `Get Component By Name` (Name = `PlayerInventory`) → cast to `Inventory Component` → `PlayerGrid → Set Inventory`.
+  - `Get Component By Name` (Name = `ContainerInventory`) → cast to `Inventory Component` → `ContainerGrid → Set Inventory`.
+
+**Create the `AHUD` subclass that owns `WBP_HUD`**
+
+Create `Source/InventoryBrawl/UI/InventoryBrawlHUD.h`:
+
+```cpp
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/HUD.h"
+#include "InventoryBrawlHUD.generated.h"
+
+class UUserWidget;
+
+UCLASS()
+class INVENTORYBRAWL_API AInventoryBrawlHUD : public AHUD
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Inventory")
+	TSubclassOf<UUserWidget> RootWidgetClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	TObjectPtr<UUserWidget> RootWidget = nullptr;
+
+	virtual void BeginPlay() override;
+};
+```
+
+Create `Source/InventoryBrawl/UI/InventoryBrawlHUD.cpp`:
+
+```cpp
+#include "UI/InventoryBrawlHUD.h"
+#include "Blueprint/UserWidget.h"
+
+void AInventoryBrawlHUD::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!RootWidgetClass)
+	{
+		return;
+	}
+
+	APlayerController* OwningPC = GetOwningPlayerController();
+	if (!OwningPC)
+	{
+		return;
+	}
+
+	RootWidget = CreateWidget<UUserWidget>(OwningPC, RootWidgetClass);
+	if (RootWidget)
+	{
+		RootWidget->AddToViewport();
+	}
+}
+```
+
+**Wire the HUD class into the game mode**
+
+- Create `BP_InventoryBrawlHUD` under `Content/Inventory/`, parent class `AInventoryBrawlHUD`. In Class Defaults set `Root Widget Class = WBP_HUD`.
+- Open `BP_InventoryBrawlGameMode` (create one if missing; parent: `AInventoryBrawlGameMode`). In Class Defaults set `HUD Class = BP_InventoryBrawlHUD`.
+- Project Settings → Maps & Modes → confirm the default game mode is `BP_InventoryBrawlGameMode`. The test level should either inherit it or override World Settings to use the same mode.
 
 Expected:
-- `WBP_PlayerInventoryGrid.Inventory` points to the player-side component.
-- `WBP_ContainerInventoryGrid.Inventory` points to the container-side component.
+- At PIE start, `AInventoryBrawlHUD::BeginPlay` creates `WBP_HUD` and adds it to the viewport.
+- `WBP_HUD::Construct` finds both inventory components on the player pawn and binds each child grid's `Inventory`.
+- Player grid renders anchored bottom-left, container grid top-right, neither overlapping.
+
+Watch out for:
+- The default `GridSize` in `UInventoryComponent.h` is `(1, 1)`. Always set both `GridSize` values on the BP component instances or every `TryAddItem` returns `OutOfBounds`.
+- `Get Component By Name` returns `UActorComponent*`. Cast to `UInventoryComponent` before assignment, otherwise the grid widget silently treats it as null.
+- `AHUD::BeginPlay` runs after the owning controller possesses its pawn under normal play, so `Get Player Pawn` is valid by the time `WBP_HUD::Construct` fires. If you ever spawn the HUD from a different code path, gate the bind on `APlayerController::OnPossess`.
+- `Size To Content` on the canvas slots is what makes the grids hug their actual size instead of stretching across the viewport — without it, both grids appear to occupy the whole screen.
 
 - [ ] **Step 9: Seed both inventories with known test data**
 
-Before running interaction tests, ensure you can create runtime items in the two inventory components so the widgets start with visible items. Use at least:
-- one `DA_Item_Bar2`
-- one `DA_Item_LShape`
-- one `DA_Item_TShape`
+Both components are owned by the player pawn, so seed them from `BP_TopDownCharacter`'s `Event BeginPlay`. That fires before `AHUD::BeginPlay`, so by the time `WBP_HUD::Construct` binds and reads `GetItems()`, the items are already present.
+
+Call `Try Add Item` on the right component for each row:
+
+| Component | Definition | Anchor | Rotation |
+|---|---|---|---|
+| `PlayerInventory` | `DA_Item_Bar2` | `(0,0)` | `Degrees0` |
+| `PlayerInventory` | `DA_Item_LShape` | `(3,0)` | `Degrees0` |
+| `PlayerInventory` | `DA_Item_TShape` | `(0,3)` | `Degrees0` |
+| `ContainerInventory` | `DA_Item_Bar2` | `(0,0)` | `Degrees0` |
+
+Print the `Result` field from each return value to the screen. With the grid sizes from Step 8, none of these calls should return `OutOfBounds` or `Overlap`.
 
 Expected:
-- At least one item is visible in the player inventory.
-- At least one transfer target area is visible in the container inventory.
+- `WBP_PlayerInventoryGrid` shows three items.
+- `WBP_ContainerInventoryGrid` shows one item with empty cells available for drop targets.
+- No `Print String` from the seeding step reports a non-`Success` result.
 
-- [ ] **Step 10: Wire drag start to create `UInventoryDragDropOperation`**
+- [ ] **Step 10: Build the cell grid inside each widget**
 
-When the user begins dragging an item widget:
-- create `UInventoryDragDropOperation`
-- set `SourceInventory`
-- set `ItemId`
-- initialize `PendingRotation`
+The widget Blueprints must draw cells before any drag interaction can land on them.
 
-Expected:
-- Dragging an item starts a UMG drag operation carrying the correct runtime item id.
-
-- [ ] **Step 11: Wire hover/drag-over preview**
-
-During drag-over or hover on a grid cell:
-- convert cursor position to target grid coordinates
-- call `PreviewExistingItem(ItemId, Anchor, Rotation)`
-- pass the returned preview into `HandlePreviewUpdated`
+In `WBP_PlayerInventoryGrid` (and identically in `WBP_ContainerInventoryGrid`):
+- Root: `Canvas Panel` with a child `Uniform Grid Panel` named `CellGrid`.
+- In the widget graph, override `Construct`. Read `Inventory.GridSize`. Loop `Y` from `0` to `GridSize.Y - 1`, and `X` from `0` to `GridSize.X - 1`. For each `(X, Y)`, create a `Border` (e.g. `CellBorder`) and `Add Child to Uniform Grid` at row `Y`, column `X`.
+- Store `(X, Y)` on each cell so drag-over can read it back. The simplest way: name the cell border (`SetTag` / a custom user widget `WBP_InventoryCell` exposing `CellCoord`).
+- Define a `Cell Size Px` constant on the widget (e.g. `64`). Drag math depends on it.
 
 Expected:
-- Valid targets and invalid targets can be visually distinguished.
+- Both widgets render a visible `GridSize.X` × `GridSize.Y` grid of cells before any items are added.
 
-- [ ] **Step 12: Wire rotate input during drag**
+- [ ] **Step 11: Render existing items and react to inventory changes**
 
-While dragging:
-- update `PendingRotation` on the `UInventoryDragDropOperation`
-- use that updated rotation when calling `PreviewExistingItem`
+Add an `Overlay` (or another `Canvas Panel`) named `ItemLayer` over the cell grid in both widgets.
 
-Expected:
-- The preview footprint changes immediately when rotation input is triggered.
-
-- [ ] **Step 13: Wire drop to same-inventory move**
-
-If `SourceInventory` equals the widget's `Inventory`:
-- call `CommitMove(ItemId, Anchor, PendingRotation)`
-
-Expected:
-- Successful drops move the existing runtime item.
-- Invalid drops leave the item in its original location.
-
-- [ ] **Step 14: Wire drop to cross-inventory transfer**
-
-If `SourceInventory` differs from the widget's `Inventory`:
-- call `CommitTransfer(SourceInventory, ItemId, Anchor, PendingRotation)`
+In the widget graph:
+- Bind to `Inventory.OnInventoryChanged` from `Construct` (or `Event Pre Construct`'s post-bind).
+- On the bound event: clear `ItemLayer`'s children. For each `FInventoryItemRuntimeData` from `GetItems()`, spawn a child user widget `WBP_InventoryItemSlot`. Configure it with:
+  - `Icon` = `Definition.Icon` (resolve the `TSoftObjectPtr<UTexture2D>`)
+  - `Size` = bounding box of `RotateShape(Definition.OccupiedCells, Item.Rotation)` × `CellSizePx`
+  - `Position` = `Item.Anchor` × `CellSizePx`
+  - `OwningInventory` = the widget's `Inventory`
+  - `OwningItemId` = `Item.ItemId`
+- Call the bound event once at the end of `Construct` so initial state renders.
 
 Expected:
-- Successful drops remove the item from the source and add it to the target.
-- Invalid drops leave the source inventory unchanged.
+- Items added in Step 9 render at the correct cells.
+- After any successful `Try Add/Move/Rotate/Transfer/Discard Item` the widgets refresh automatically.
 
-- [ ] **Step 15: Wire a discard action**
+- [ ] **Step 12: Wire drag start on `WBP_InventoryItemSlot`**
 
-Provide a temporary discard button, context action, or key path that calls:
+The slot widget owns drag detection; the grid widget owns drop handling. Do not invert this.
 
-```text
-Inventory->DiscardItem(ItemId)
-```
+In `WBP_InventoryItemSlot`:
+- `OnMouseButtonDown` → return `Detect Drag if Pressed` with `Left Mouse Button`.
+- `OnDragDetected` →
+  - `Construct Drag Drop Operation` with class `InventoryDragDropOperation`.
+  - `SourceInventory` = `OwningInventory`
+  - `ItemId` = `OwningItemId`
+  - `PendingRotation` = the item's current rotation (look up via `OwningInventory.GetItems` and find by `OwningItemId`)
+  - `DefaultDragVisual` = a small `Image` widget showing the icon (or a duplicate of self).
+  - Return the operation.
 
 Expected:
-- The item disappears from the source inventory UI.
-- Any debug output or Blueprint listener bound to `OnItemDiscarded` fires once.
+- Pressing and dragging an item starts a UMG drag carrying the correct runtime `ItemId` and `SourceInventory`.
 
-- [ ] **Step 16: Run manual verification in PIE and record outcomes**
+- [ ] **Step 13: Wire drag-over preview on the grid widgets**
+
+In both `WBP_PlayerInventoryGrid` and `WBP_ContainerInventoryGrid`:
+- Override `OnDragOver`. Cast the operation to `InventoryDragDropOperation`; bail out if cast fails.
+- Convert `PointerEvent.ScreenPosition` to local space (`Absolute to Local`), divide by `CellSizePx`, floor to `FIntPoint`. That is `Anchor`.
+- Call `Preview Existing Item (ItemId = Operation.ItemId, Anchor, Rotation = Operation.PendingRotation)`. The C++ helper internally calls `Inventory->PreviewPlacement` with the `IgnoredItemId` set so same-inventory hover over the item's own cells still validates.
+- Pass the resulting `FInventoryPlacementPreview` to `Handle Preview Updated`. In the BP override of that event, tint the cells in `Preview.OccupiedCells` green when `Result == Success` and red otherwise. Clear previous tints first.
+- Return `true` from `OnDragOver`.
+- Override `OnDragLeave` to clear all preview tints.
+
+Expected:
+- Hovering a valid drop position highlights cells green.
+- Hovering an out-of-bounds or overlapping position highlights cells red.
+- Hovering an item over its own cells (same inventory) still shows green because of `IgnoredItemId`.
+
+- [ ] **Step 14: Wire rotation input during drag**
+
+Drag operations do not focus a widget by default, so a key listener on the grid is the easiest path.
+
+- On the grid widget, override `OnKeyDown`. Detect `R`. Read the active drag operation via `Get Drag Drop Operation` (or cache it from the most recent `OnDragOver`). Cast to `InventoryDragDropOperation`.
+- Bump `PendingRotation` to the next 90° step (`Degrees0 → 90 → 180 → 270 → 0`).
+- Re-run the preview with the last known anchor (cache the last `Anchor` from `OnDragOver` on the widget). Update visuals via `Handle Preview Updated`.
+
+Expected:
+- Pressing `R` while dragging changes the previewed footprint immediately, even if the cursor does not move.
+
+- [ ] **Step 15: Wire drop on the grid widgets**
+
+Drop is routed to the **grid**, never the item slot. If a slot in the target grid swallows the drop event, dispatch will not reach the grid.
+
+In both grid widgets:
+- Override `OnDrop`. Cast to `InventoryDragDropOperation`.
+- Compute `Anchor` the same way as `OnDragOver`.
+- If `Operation.SourceInventory == self.Inventory`:
+  - `Commit Move(ItemId = Operation.ItemId, Anchor, Rotation = Operation.PendingRotation)`
+- Else:
+  - `Commit Transfer(SourceInventory = Operation.SourceInventory, ItemId, Anchor, Rotation = Operation.PendingRotation)`
+- Inspect the returned `FInventoryOperationResultData.Result`. If not `Success`, do nothing — the component never mutated, and the widgets repaint correctly because no `OnInventoryChanged` fires.
+- Clear preview tints. Return `true`.
+
+Expected:
+- Valid same-inventory drop moves the item and the widget refreshes via `OnInventoryChanged`.
+- Valid cross-inventory drop removes the item from the source widget and adds it to the target widget; both refresh.
+- Invalid drops leave both inventories untouched and no item visuals shift.
+
+- [ ] **Step 16: Wire a discard action**
+
+Simplest viable form for verification: a key binding on the grid widget.
+
+- In `WBP_PlayerInventoryGrid`, override `OnKeyDown`. Detect `Delete`.
+- Identify the currently hovered slot. The lightweight approach: have `WBP_InventoryItemSlot` set a `LastHoveredItemId` on the parent grid widget in its `OnMouseEnter` / `OnMouseLeave` events.
+- On `Delete`, call `Inventory->DiscardItem(LastHoveredItemId)` if valid.
+- Optionally bind to `OnItemDiscarded` from `Construct` and `Print String` the discarded item's display name to confirm the delegate fires once.
+
+Expected:
+- Hovering an item in the player inventory and pressing `Delete` removes it from the inventory and the UI.
+- The bound `OnItemDiscarded` listener prints exactly once per successful discard.
+
+- [ ] **Step 17: Run manual verification in PIE and record outcomes**
 
 Use this checklist during one or more PIE runs:
 
@@ -1379,6 +1526,10 @@ Use this checklist during one or more PIE runs:
 [ ] Discard fires the expected delegate or debug hook once.
 ```
 
+Two cases worth running first because they catch the most common wiring mistakes:
+- Rotate-then-drop on a tight fit: rotate `DA_Item_TShape` 90° and drop it into `ContainerInventory` (4×4) at `(0,0)`. Exercises rotation, bounds, and transfer in one go.
+- Same-cell move: drag an item one cell over its own footprint. Succeeds only if the widget passes `ItemId` to `Preview Existing Item` so `IgnoredItemId` is honored — if it returns `Overlap`, that wiring is wrong.
+
 Record for each failed check:
 - what you dragged
 - source widget
@@ -1386,7 +1537,7 @@ Record for each failed check:
 - expected result
 - observed result
 
-- [ ] **Step 17: Final regression build and automated tests**
+- [ ] **Step 18: Final regression build and automated tests**
 
 Run:
 
@@ -1409,6 +1560,7 @@ Expected:
 - Runtime records and authoritative inventory component: covered in Tasks 1, 4, and 5.
 - Rotation, drag/drop move, discard, atomic transfer: covered in Tasks 5 and 6.
 - UMG-driven preview/interaction shell: covered in Task 6.
+- HUD ownership via `AHUD` and HUD-anchored layout: covered in Task 7 Step 8.
 - Automated C++ tests and manual verification: covered in Tasks 3, 5, and 7.
 
 ### Placeholder Scan
@@ -1420,3 +1572,29 @@ Expected:
 - `TryAddItem`, `TryMoveItem`, `TryRotateItem`, `TryTransferItem`, `DiscardItem`, and `PreviewPlacement` names match across tasks.
 - Rotation uses `EInventoryRotation` consistently in helpers, component methods, and UMG payloads.
 ```
+
+---
+
+## Future Work
+
+These items are intentionally out of scope for the current plan. They are recorded so the testing-friendly shortcuts taken above are not mistaken for the long-term design.
+
+### Real container actor with its own `UInventoryComponent`
+
+The current plan keeps both `UInventoryComponent` instances on the player pawn so the dragging tests can exercise cross-inventory transfer without a placeable actor. The longer-term shape is a `BP_LootContainer` (parent: `AActor`) that:
+- Owns its own `ContainerInventory` component.
+- Exposes an `Interact(APawn* Instigator)` method (Blueprint Interface or virtual) that hands its component to the player's HUD.
+- On overlap or interact, the HUD swaps `WBP_HUD.ContainerGrid.Inventory` to point at the container's component, then unbinds when the player walks away.
+- The on-pawn `ContainerInventory` is removed once container actors exist.
+
+### `ULocalPlayerSubsystem`-owned HUD
+
+`AInventoryBrawlHUD` is the engine-blessed home for player-scoped UI, but it is recreated whenever the player controller is recreated (level transitions, server travel). When the HUD must persist across maps or be reachable from systems that do not have a controller (save system, ability system, gameplay tag listeners), migrate the spawn logic from `AInventoryBrawlHUD::BeginPlay` to a `ULocalPlayerSubsystem::Initialize`. The `WBP_HUD` widget itself does not need to change.
+
+### CommonUI / `UPrimaryGameLayout` adoption
+
+Once the project gains a third or fourth full-screen menu (crafting, map, pause, settings, dialog), replace the single-canvas `WBP_HUD` with a CommonUI `UPrimaryGameLayout` exposing named layers (`Game`, `GameMenu`, `Menu`, `Modal`). `UCommonActivatableWidget` instances are pushed onto layers via gameplay tags. Adopt this only when stacked menus, gamepad navigation, or modal input routing become real requirements — the setup cost is significant.
+
+### Inventory networking and persistence
+
+The component is currently authoritative but not replicated. Multiplayer support requires marking `Items` as a replicated property (likely with `FastArraySerializer` so per-item churn does not resync the whole array), routing every `Try*` mutation through server RPCs, and reissuing `OnInventoryChanged` from `OnRep`. Save/load is a separate concern: `FInventoryItemRuntimeData` is already a `USTRUCT(BlueprintType)` and serializes naturally as long as `UInventoryItemDefinition` references resolve via soft pointers in the save format.
