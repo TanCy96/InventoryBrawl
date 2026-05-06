@@ -16,8 +16,11 @@ class INVENTORYBRAWL_API UInventoryGridWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	TObjectPtr<UInventoryComponent> Inventory = nullptr;
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetInventory(UInventoryComponent* NewInventory);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	FInventoryPlacementPreview PreviewExistingItem(FGuid ItemId, FIntPoint Anchor, EInventoryRotation Rotation) const;
@@ -30,4 +33,17 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Inventory")
 	void HandlePreviewUpdated(const FInventoryPlacementPreview& Preview);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Inventory")
+	void HandleInventoryAssigned();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Inventory")
+	void HandleInventoryItemsChanged();
+
+protected:
+	virtual void NativeDestruct() override;
+
+private:
+	UFUNCTION()
+	void OnBoundInventoryChanged();
 };
