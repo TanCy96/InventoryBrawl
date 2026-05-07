@@ -24,7 +24,7 @@ FIntPoint UInventoryBlueprintLibrary::GetRotatedNormalizedShapeSize(const TArray
 		MaxX = FMath::Max(MaxX, Normalized[i].X);
 		MaxY = FMath::Max(MaxY, Normalized[i].Y);
 	}
-	return FIntPoint(MaxX, MaxY);
+	return FIntPoint(MaxX + 1, MaxY + 1);
 }
 
 
