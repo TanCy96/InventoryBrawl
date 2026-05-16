@@ -1439,14 +1439,27 @@ Expected:
 The slot widget owns drag detection; the grid widget owns drop handling. Do not invert this.
 
 In `WBP_InventoryItemSlot`:
-- `OnMouseButtonDown` → return `Detect Drag if Pressed` with `Left Mouse Button`.
-- `OnDragDetected` →
-  - `Construct Drag Drop Operation` with class `InventoryDragDropOperation`.
-  - `SourceInventory` = `OwningInventory`
-  - `ItemId` = `OwningItemId`
-  - `PendingRotation` = the item's current rotation (look up via `OwningInventory.GetItems` and find by `OwningItemId`)
-  - `DefaultDragVisual` = a small `Image` widget showing the icon (or a duplicate of self).
-  - Return the operation.
+- Ensure the root of the widget is hit-testable. Set the root visibility to `Visible` so the slot can receive mouse input.
+- Add the widget override `On Mouse Button Down` from the `Overrides` dropdown in the Widget Blueprint editor.
+  - In that override, call `Detect Drag if Pressed`.
+  - `In Mouse Event` = the event input from `On Mouse Button Down`
+  - `Widget Detecting Drag` = `Self`
+  - `Drag Key` = `Left Mouse Button`
+  - Return the `Event Reply` from `Detect Drag if Pressed`.
+- Add the widget override `On Drag Detected` from the same `Overrides` dropdown.
+  - Create a `Drag Drop Operation` with class `InventoryDragDropOperation`.
+  - Set `SourceInventory = OwningInventory`.
+  - Set `ItemId = OwningItemId`.
+  - Set `PendingRotation = Rotation`. Do not look the item up again if the slot already stores the current runtime rotation.
+  - Set `DefaultDragVisual` to a temporary drag visual:
+    - simplest version: create a plain `Image` widget and set its brush from `ItemDefinition.Icon`
+    - acceptable alternative: create another `WBP_InventoryItemSlot` configured with the same data and reduced opacity
+  - Assign the created operation to the `Operation` output pin of `On Drag Detected`.
+
+Blueprint intent:
+- `On Mouse Button Down` does not start the drag immediately. It only tells UMG "if the user keeps dragging after this left-click, treat this widget as draggable."
+- `On Drag Detected` is the moment the actual drag operation is created and populated.
+- The drag operation is just payload. It carries `SourceInventory`, `ItemId`, and `PendingRotation` so the grid widgets can preview and commit the move later.
 
 Expected:
 - Pressing and dragging an item starts a UMG drag carrying the correct runtime `ItemId` and `SourceInventory`.
